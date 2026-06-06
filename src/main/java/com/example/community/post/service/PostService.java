@@ -2,15 +2,16 @@ package com.example.community.post.service;
 
 import com.example.community.global.auth.AuthValidator;
 import com.example.community.global.dto.AuthorDTO;
-import com.example.community.global.exceptions.ConflictException;
-import com.example.community.global.exceptions.ContentNotFoundException;
-import com.example.community.global.exceptions.NotRegisteredException;
+import com.example.community.global.exceptions.*;
 import com.example.community.post.dto.*;
 import com.example.community.post.entity.Post;
 import com.example.community.post.entity.PostStatus;
+import com.example.community.post.entity.Report;
 import com.example.community.post.factory.PostFactory;
+import com.example.community.post.factory.ReportFactory;
 import com.example.community.post.repository.LikeRepository;
 import com.example.community.post.repository.PostRepository;
+import com.example.community.post.repository.ReportRepository;
 import com.example.community.user.entity.User;
 import com.example.community.user.repository.UserRepository;
 import jakarta.validation.Valid;
@@ -27,13 +28,18 @@ public class PostService {
     private final UserRepository userRepository;
     private final PostFactory postFactory;
     private final LikeRepository likeRepository;
+    private final ReportRepository reportRepository;
+    private final ReportFactory reportFactory;
+    private final int REPORT_BLIND_LIMIT = 1;
 
-    public PostService(PostRepository postRepository, AuthValidator authValidator, UserRepository userRepository, PostFactory postFactory, LikeRepository likeRepository) {
+    public PostService(PostRepository postRepository, AuthValidator authValidator, UserRepository userRepository, PostFactory postFactory, LikeRepository likeRepository, ReportRepository reportRepository, ReportFactory reportFactory) {
         this.postRepository = postRepository;
         this.authValidator = authValidator;
         this.userRepository = userRepository;
         this.postFactory = postFactory;
         this.likeRepository = likeRepository;
+        this.reportRepository = reportRepository;
+        this.reportFactory = reportFactory;
     }
     // ----------------------------------- 게시물 업로드 -----------------------------------
     public PostResponseDTO upload(String authorizationHeader, @Valid PostRequestDTO postRequestDTO) {
@@ -59,6 +65,8 @@ public class PostService {
     public PostDetailResponseDTO getPostDetail(String authorizationHeader, Long postId){
         authValidator.getLoginUserId(authorizationHeader);
         Post post = postRepository.getPostByPostId(postId).orElseThrow(ContentNotFoundException::new);
+        // 블라인드 된 게시글은 권한(관리자나 본인)이 있어야만 접근 가능. 일단은 전부 예외로 처리.
+        if(PostStatus.BLINDED.equals(post.getStatus())) throw new ForbiddenException();
         User author = userRepository.findUserById(post.getUserId()).orElseThrow(NotRegisteredException::new);
         AuthorDTO authorDTO = new AuthorDTO(author.getStatus(), author.getNickname(), author.getProfileImageUrl());
         post.increaseViews();
@@ -101,6 +109,25 @@ public class PostService {
         post.decreaseLikes();
         return new LikeResponseDTO(postId, post.getLikes(), false);
     }
+    // ----------------------------------- 게시물 신고 -----------------------------------
+    public ReportResponseDTO reportPost(String authorizationHeader, Long postId, ReportRequestDTO requestDTO){
+        long userId =  authValidator.getLoginUserId(authorizationHeader);
+        Post post =  postRepository.getPostByPostId(postId).orElseThrow(ContentNotFoundException::new);
+        // 이미 해당 게시글에 신고했다면 예외 처리.
+        if(reportRepository.existsByPostIdAndUserId(postId, userId)) throw new AlreadyReportedException();
+
+        Report report = reportFactory.create(reportRepository.nextReportId(), postId, userId, requestDTO);
+        reportRepository.save(report);
+
+        boolean blinded = false;
+        if(reportRepository.countByPostId(postId) >= REPORT_BLIND_LIMIT){
+            blinded = true;
+            if(!post.isBlinded()) post.blind();
+        }
+
+        return new ReportResponseDTO(post.getPostId(), report.getReportId(), blinded);
+    }
+
     // ----------------------------------- 추가 메서드 -----------------------------------
 
     private PostListResponseDTO toPostListResponseDTO(Post post){

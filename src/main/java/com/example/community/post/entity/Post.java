@@ -57,4 +57,10 @@ public class Post {
         this.postImageUrl = null;
         this.status = PostStatus.DELETED;
     }
+    public boolean isBlinded(){
+        return PostStatus.BLINDED.equals(this.status);
+    }
+    public void blind(){
+        this.status = PostStatus.BLINDED;
+    }
 }
