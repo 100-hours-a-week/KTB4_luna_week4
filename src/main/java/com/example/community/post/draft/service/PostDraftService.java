@@ -1,9 +1,109 @@
 package com.example.community.post.draft.service;
 
+import com.example.community.global.auth.AuthValidator;
+import com.example.community.global.dto.AuthorDTO;
+import com.example.community.global.exceptions.ConflictException;
+import com.example.community.global.exceptions.ContentNotFoundException;
+import com.example.community.global.exceptions.NotRegisteredException;
+import com.example.community.post.draft.dto.PostDraftRequestDTO;
+import com.example.community.post.draft.dto.PostDraftResponseDTO;
+import com.example.community.post.draft.entity.PostDraft;
+import com.example.community.post.draft.factory.PostDraftFactory;
+import com.example.community.post.draft.repository.PostDraftRepository;
+import com.example.community.post.dto.PostDTO;
+import com.example.community.post.dto.PostResponseDTO;
+import com.example.community.post.entity.Post;
+import com.example.community.post.factory.PostFactory;
+import com.example.community.post.repository.PostRepository;
+import com.example.community.user.entity.User;
+import com.example.community.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
+
+import java.util.Optional;
 
 @Service
 @Validated
 public class PostDraftService {
+    private final PostDraftFactory postDraftFactory;
+    private final PostDraftRepository postDraftRepository;
+    private final AuthValidator authValidator;
+    private final UserRepository userRepository;
+    private final PostFactory postFactory;
+    private final PostRepository postRepository;
+
+    public PostDraftService(PostDraftFactory postDraftFactory, PostDraftRepository postDraftRepository, AuthValidator authValidator, UserRepository userRepository, PostFactory postFactory, PostRepository postRepository) {
+        this.postDraftFactory = postDraftFactory;
+        this.postDraftRepository = postDraftRepository;
+        this.authValidator = authValidator;
+        this.userRepository = userRepository;
+        this.postFactory = postFactory;
+        this.postRepository = postRepository;
+    }
+
+    // ----------------------------------- 임시작성글 조회 -----------------------------------
+    public Optional<PostDraftResponseDTO> getCurrentDraft(String authorizationHeader){
+        long userId = authValidator.getLoginUserId(authorizationHeader);
+        return postDraftRepository.findCurrentByUserId(userId).map(this::toResponseDTO);
+    }
+
+    // ----------------------------------- 임시작성글 포스팅 -----------------------------------
+    public PostResponseDTO publishDraft(String authorizationHeader, PostDraftRequestDTO requestDTO){
+        long userId = authValidator.getLoginUserId(authorizationHeader);
+        PostDraft postDraft = postDraftRepository.findCurrentByUserId(userId).orElseThrow(ContentNotFoundException::new);
+        authValidator.validateOwner(userId, postDraft.getUserId());
+        User author = userRepository.findUserById(userId).orElseThrow(NotRegisteredException::new);
+
+        // post 생성
+        Post post = postFactory.create(postRepository.nextPostId(), userId, requestDTO.getTitle(), requestDTO.getPostBody(), requestDTO.getPostImageUrl());
+        postRepository.save(post);
+
+        // 임시저장글 삭제.
+        postDraftRepository.delete(userId);
+
+        return new PostResponseDTO(new AuthorDTO(author.getStatus(), author.getNickname(), author.getProfileImageUrl()), new PostDTO(post));
+    }
+
+    // ----------------------------------- 임시작성글 생성 -----------------------------------
+    public PostDraftResponseDTO saveDraft(String authorizationHeader, PostDraftRequestDTO requestDTO){
+        long userId = authValidator.getLoginUserId(authorizationHeader);
+        // 이미 임시저장글이 있는 경우 -> 예외 처리.
+        if(postDraftRepository.findCurrentByUserId(userId).isPresent()) throw new ConflictException();
+
+        PostDraft postDraft = postDraftFactory.create(postDraftRepository.nextDraftId(), userId, requestDTO);
+        postDraftRepository.save(userId, postDraft);
+
+        return toResponseDTO(postDraft);
+    }
+
+    // ----------------------------------- 임시작성글 업데이트 -----------------------------------
+    public PostDraftResponseDTO overwriteDraft(String authorizationHeader, PostDraftRequestDTO requestDTO){
+        long userId = authValidator.getLoginUserId(authorizationHeader);
+        PostDraft postDraft = postDraftRepository.findCurrentByUserId(userId).orElseThrow(ContentNotFoundException::new);
+        authValidator.validateOwner(userId, postDraft.getUserId());
+        postDraft.overwrite(requestDTO.getTitle(), requestDTO.getPostBody(), requestDTO.getPostImageUrl());
+
+        return toResponseDTO(postDraft);
+    }
+
+    // ----------------------------------- 임시작성글 삭제 -----------------------------------
+    public void deleteDraft(String authorizationHeader){
+        long userId = authValidator.getLoginUserId(authorizationHeader);
+        PostDraft draft = postDraftRepository.findCurrentByUserId(userId).orElseThrow(ContentNotFoundException::new);
+        authValidator.validateOwner(userId, draft.getUserId());
+        postDraftRepository.delete(userId);
+    }
+    // ----------------------------------- 추가 메서드 -----------------------------------
+
+    private PostDraftResponseDTO toResponseDTO(PostDraft postDraft) {
+        return new PostDraftResponseDTO(
+                postDraft.getDraftId(),
+                postDraft.getTitle(),
+                postDraft.getPostBody(),
+                postDraft.getPostImageUrl(),
+                postDraft.getUpdatedAt(),
+                postDraft.getVersion()
+        );
+    }
+
 }
