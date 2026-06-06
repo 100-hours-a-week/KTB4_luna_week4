@@ -21,9 +21,7 @@ public class GlobalExceptionHandler {
             errors.put(error.getField(), error.getDefaultMessage());
         });
 
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(new ApiResponse<>("invalid_input", errors));
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ApiResponse<>("invalid_input", errors));
     }
 
     // 401, 등록되지 않은 이메일 -> 유저 확인되지 않음
@@ -32,9 +30,7 @@ public class GlobalExceptionHandler {
         Map<String, String> errors = new HashMap<>();
         errors.put("email", "user_not_found");
 
-        return ResponseEntity
-                .status(HttpStatus.UNAUTHORIZED)
-                .body(new ApiResponse<>("user_not_found", errors));
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResponse<>("user_not_found", errors));
     }
 
     // 401, 올바르지 않은 비밀번호
@@ -43,9 +39,7 @@ public class GlobalExceptionHandler {
         Map<String, String> errors = new HashMap<>();
         errors.put("password", "password_invalid");
 
-        return ResponseEntity
-                .status(HttpStatus.UNAUTHORIZED)
-                .body(new ApiResponse<>("password_invalid", errors));
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResponse<>("password_invalid", errors));
     }
 
     // 401, 비로그인, 토큰 만료 등 권한 없음
@@ -54,9 +48,7 @@ public class GlobalExceptionHandler {
         Map<String, String> errors = new HashMap<>();
         errors.put("token", "unauthorized_user");
 
-        return ResponseEntity
-                .status(HttpStatus.UNAUTHORIZED)
-                .body(new ApiResponse<>("unauthorized_user", errors));
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResponse<>("unauthorized_user", errors));
     }
 
     // 403, 권한이 없고, 관리자가 아닌 경우
@@ -77,6 +69,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiResponse<>("already_exists", null));
     }
 
+    // 409, 이미 신고한 게시글
+    @ExceptionHandler(AlreadyReportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAlreadyReportedException(AlreadyReportedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiResponse<>("already_reported", null));
+    }
+
+    // 409, 좋아요 등 상태가 중복된 경우.
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ApiResponse<Void>> handleConflictException(ConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiResponse<>("state_conflict", null));
